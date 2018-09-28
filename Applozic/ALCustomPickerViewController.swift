@@ -50,6 +50,11 @@ public class ALBaseNavigationViewController: UINavigationController {
     @objc func multimediaSelected(_ list: [ALMultimediaData])
 }
 
+struct ProgressItem {
+    var progress: Progress
+    var durationSeconds: Int
+}
+
 @objc public class ALCustomPickerViewController: UIViewController {
     //photo library
     var asset: PHAsset!
@@ -63,11 +68,10 @@ public class ALBaseNavigationViewController: UINavigationController {
     var selectedGifs = [Int: PHAsset]()
     
     // EXPORT PROGRESS VALUES
-    var exportingVideoSessions = [String: AVAssetExportSession]()
-    var progressItems = [String: Progress]()
+    var exportingVideoSessions = [AVAssetWriter]()
+    var progressItems = [ProgressItem]()
     var mainProgress: Progress?
-    var exportProgressBarTimer: Timer?
-    var exportWasCalceled = false
+//    var exportWasCalceled = false
     
     
     var multimediaData: ALMultimediaData = ALMultimediaData()
@@ -234,33 +238,26 @@ public class ALBaseNavigationViewController: UINavigationController {
         catch {
             // most likely, the file didn't exist.  Don't sweat it
         }
-
-        PHImageManager.default().requestExportSession(forVideo: asset, options: options, exportPreset: AVAssetExportPresetHighestQuality) { [weak self]
-            (exportSession: AVAssetExportSession?, _) in
-
-            guard let avExportSession = exportSession else {
-                print("COULD NOT CREATE EXPORT SESSION")
+        PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { [weak self] (asset, audioMix, info) in
+            
+            guard let urlAsset = asset as? AVURLAsset else {
+                exportStarted()
                 completion(nil)
                 return
             }
-
-            avExportSession.outputURL = fileurl
-            avExportSession.outputFileType = AVFileType.mp4 //file type encode goes here, you can change it for other types
-
-            print("GOT EXPORT SESSION")
-            avExportSession.exportAsynchronously() {
-                print("EXPORT DONE")
-                completion(fileurl.path)
+            
+            var duratiomCMTime = urlAsset.duration
+            if CMTimeGetSeconds(duratiomCMTime) > 300 {
+                duratiomCMTime = CMTimeMakeWithSeconds(300, preferredTimescale: duratiomCMTime.timescale)
             }
-            
-            self?.exportingVideoSessions[filePath] = avExportSession
-            self?.progressItems[filePath] = Progress(totalUnitCount: 100)
-
-            print("progress: \(avExportSession.progress)")
-            print("error: \(String(describing: avExportSession.error))")
-            print("status: \(avExportSession.status.rawValue)")
-            
-            exportStarted()
+            let range = CMTimeRangeMake(start: .zero, duration: duratiomCMTime)
+            ALCustomPickerViewController.convertVideoToLowQuailtyWithInputURL(inputURL: urlAsset.url, outputURL: fileurl, duration: range, started: { progress, writer in
+                self?.exportingVideoSessions.append(writer)
+                self?.progressItems.append(ProgressItem(progress: progress, durationSeconds: Int(CMTimeGetSeconds(duratiomCMTime))))
+                exportStarted()
+            }, completed: {
+                completion(fileurl.path)
+            })
         }
     }
     
@@ -305,12 +302,34 @@ public class ALBaseNavigationViewController: UINavigationController {
         
         var videoPaths: [String] = []
         dispatchGroup.enter()
-        exportMultipleVideos(Array(selectedVideos.values), exportStarted: { [weak self] in
-            self?.showProgressAlert()
-        }, completion: { paths in
-            videoPaths = paths
-            dispatchGroup.leave()
-        })
+        
+        var isCanceled = false
+        let videos = Array(selectedVideos.values)
+        
+        let exportVideo = { [weak self] in
+            self?.exportMultipleVideos(videos, exportStarted: { [weak self] in
+                self?.showProgressAlert()
+            }, completion: { paths in
+                videoPaths = paths
+                dispatchGroup.leave()
+            })
+        }
+        
+        if ALApplozicSettings.is5MinVideoLimitInGalleryEnabled(), videos.first(where: { $0.duration > 300 }) != nil {
+            
+            let message = NSLocalizedString("The video you’re attempting to send exceeds the 5 minutes limit. If you proceed, only a 5 minutes of the video will be selected and the rest will be trimmed out.", comment: "")
+            let alertView = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+            alertView.addAction(UIAlertAction(title: NSLocalizedString("OK", comment: ""), style: .default, handler: { _ in
+                exportVideo()
+            }))
+            alertView.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel, handler: { _ in
+                isCanceled = true
+                dispatchGroup.leave()
+            }))
+            present(alertView, animated: true)
+        } else {
+            exportVideo()
+        }
         
         var images: [UIImage] = []
         for image in selectedImages.values {
@@ -336,10 +355,7 @@ public class ALBaseNavigationViewController: UINavigationController {
         
         dispatchGroup.notify(queue: .main) { [weak self] in
             
-            self?.exportProgressBarTimer?.invalidate()
-            guard self?.exportWasCalceled == false else {
-                self?.exportWasCalceled = false
-                self?.presentedViewController?.dismiss(animated: true)
+            guard !isCanceled else {
                 return
             }
             
@@ -353,17 +369,21 @@ public class ALBaseNavigationViewController: UINavigationController {
     func showProgressAlert() {
         let alertView = UIAlertController(title: NSLocalizedString("Optimizing...", comment: ""), message: " ", preferredStyle: .alert)
         alertView.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel, handler: { [weak self] _ in
-            self?.exportWasCalceled = true
-            self?.exportingVideoSessions.values.forEach { $0.cancelExport() }
+            self?.exportingVideoSessions.forEach { $0.cancelWriting() }
             self?.progressItems.removeAll()
-            self?.exportProgressBarTimer?.invalidate()
-            alertView.dismiss(animated: true)
+            alertView.dismiss(animated: true) {
+                self?.exportingVideoSessions.removeAll()
+            }
         }))
         var mainProgress: Progress?
         if #available(iOS 9.0, *) {
-            mainProgress = Progress(totalUnitCount: 100)
-            for item in progressItems.values {
-                mainProgress?.addChild(item, withPendingUnitCount: Int64(100.0/Double(progressItems.count)))
+            
+            
+            let totalDuration = progressItems.reduce(0) { $0 + $1.durationSeconds }
+            mainProgress = Progress(totalUnitCount: Int64(totalDuration))
+            
+            for item in progressItems {
+                mainProgress?.addChild(item.progress, withPendingUnitCount: Int64(item.durationSeconds))
             }
             self.mainProgress = mainProgress
         }
@@ -378,15 +398,6 @@ public class ALBaseNavigationViewController: UINavigationController {
                 alertView.view.addSubview(progressView)
             }
         })
-        if #available(iOS 9.0, *) {
-            exportProgressBarTimer = Timer.scheduledTimer(timeInterval: 0.1, target: self, selector: #selector(updateProgressIndicator), userInfo: nil, repeats: true)
-        }
-    }
-    
-    @objc func updateProgressIndicator() {
-        for (key, session) in exportingVideoSessions {
-            progressItems[key]?.completedUnitCount = Int64(session.progress * 100.0)
-        }
     }
 
     @IBAction func dismissAction(_ sender: UIBarButtonItem) {
@@ -530,5 +541,100 @@ extension ALCustomPickerViewController: UICollectionViewDelegate, UICollectionVi
 
     public func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, insetForSectionAt section: Int) -> UIEdgeInsets {
         return CollectionViewEnvironment.Spacing.inset
+    }
+    
+    // video processing
+    class func convertVideoToLowQuailtyWithInputURL(inputURL: URL, outputURL: URL, duration: CMTimeRange, started: (Progress, AVAssetWriter) -> Void, completed: @escaping () -> Void) {
+        //setup video writer
+        let videoAsset = AVURLAsset(url: inputURL as URL, options: nil)
+        let durationTime = Double(CMTimeGetSeconds(duration.duration))
+        let progress = Progress(totalUnitCount: Int64(durationTime))
+        
+        let videoTrack = videoAsset.tracks(withMediaType: AVMediaType.video)[0]
+        let videoSize = videoTrack.naturalSize
+        
+        let widthIsBigger = max(videoSize.height, videoSize.width) == videoSize.width
+        let ratio = (widthIsBigger ? videoSize.height : videoSize.width) / 480.0
+        
+        let videoWriterCompressionSettings = [
+            AVVideoAverageBitRateKey : 815_000
+        ]
+        
+        let videoWriterSettings:[String : Any] = [
+            AVVideoCodecKey : AVVideoCodecH264,
+            AVVideoCompressionPropertiesKey : videoWriterCompressionSettings,
+            AVVideoWidthKey : Int(videoSize.width/ratio),
+            AVVideoHeightKey : Int(videoSize.height/ratio)
+        ]
+        
+
+        let videoWriter = try! AVAssetWriter(outputURL: outputURL, fileType: .mov)
+        
+        let videoWriterInput = AVAssetWriterInput(mediaType: AVMediaType.video, outputSettings: videoWriterSettings)
+        videoWriterInput.expectsMediaDataInRealTime = true
+        videoWriterInput.transform = videoTrack.preferredTransform
+        videoWriter.add(videoWriterInput)
+        //setup video reader
+        let videoReaderSettings:[String : Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+        ]
+        
+        let videoReaderOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
+        let videoReader = try! AVAssetReader(asset: videoAsset)
+        videoReader.timeRange = duration
+        videoReader.add(videoReaderOutput)
+        //setup audio writer
+        let audioWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
+        audioWriterInput.expectsMediaDataInRealTime = false
+        videoWriter.add(audioWriterInput)
+        //setup audio reader
+        let audioTrack = videoAsset.tracks(withMediaType: AVMediaType.audio)[0]
+        let audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+        let audioReader = try! AVAssetReader(asset: videoAsset)
+        audioReader.timeRange = duration
+        audioReader.add(audioReaderOutput)
+        videoWriter.startWriting()
+        
+        //start writing from video reader
+        videoReader.startReading()
+        videoWriter.startSession(atSourceTime: CMTime.zero)
+        let processingQueue = DispatchQueue(label: "processingQueue1")
+        videoWriterInput.requestMediaDataWhenReady(on: processingQueue) {
+            while videoWriterInput.isReadyForMoreMediaData {
+                
+                if let sampleBuffer = videoReaderOutput.copyNextSampleBuffer(), videoReader.status == .reading {
+                    videoWriterInput.append(sampleBuffer)
+                    let timeStamp = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+                    progress.completedUnitCount = Int64(timeStamp)
+//                    NSLog("VIDEO: \(inputURL.lastPathComponent): \(Int(Double(timeStamp)*100/durationTime))")
+                } else {
+                    videoWriterInput.markAsFinished()
+                    if videoReader.status == .completed {
+                        //start writing from audio reader
+                        audioReader.startReading()
+                        videoWriter.startSession(atSourceTime: CMTime.zero)
+                        let processingQueue = DispatchQueue(label: "processingQueue2")
+                        audioWriterInput.requestMediaDataWhenReady(on: processingQueue) {
+                            while audioWriterInput.isReadyForMoreMediaData {
+                                
+                                if let sampleBuffer = audioReaderOutput.copyNextSampleBuffer(), audioReader.status == .reading {
+                                    audioWriterInput.append(sampleBuffer)
+//                                    let timeStamp = Double(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)))
+//                                    NSLog("AUDIO: \(timeStamp/durationTime)")
+                                } else {
+                                    audioWriterInput.markAsFinished()
+                                    if audioReader.status == .completed {
+                                        videoWriter.finishWriting {
+                                            completed()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        started(progress, videoWriter)
     }
 }

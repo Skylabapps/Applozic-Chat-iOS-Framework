@@ -11,7 +11,7 @@
  ***************************************************************************************/
 
 #define DATE_LABEL_SIZE 12
-#define MESSAGE_TEXT_SIZE 14
+#define MESSAGE_TEXT_SIZE 18
 
 #define USER_PROFILE_PADDING_X 5
 #define USER_PROFILE_PADDING_X_OUTBOX 50

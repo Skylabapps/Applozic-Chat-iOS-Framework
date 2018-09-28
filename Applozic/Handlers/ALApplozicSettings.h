@@ -105,8 +105,10 @@
 #define CHANNEL_MEMBER_INFO_IN_SUBTITLE @"com.applozic.CHANNEL_MEMBER_INFO_IN_SUBTITLE"
 static NSString *const HIDE_MESSAGES_WITH_METADATA_KEYS = @"com.applozic.HIDE_MESSAGES_WITH_METADATA_KEYS";
 static NSString *const ALDisableMultiSelectGalleryView = @"ALDisableMultiSelectGalleryView";
+static NSString *const AL_5MIN_VIDEO_LIMIT_IN_GALLERY= @"com.applozic.AL_5MIN_VIDEO_LIMIT_IN_GALLERY";
 static NSString *const BACKGROUND_COLOR_FOR_ATTACHMENT_PLUS_ICON =  @"com.applozic.BACKGROUND_COLOR_FOR_ATTACHMENT_PLUS_ICON";
 static NSString *const AL_TEXT_STYLE_FOR_CELL= @"com.applozic.AL_TEXT_STYLE_FOR_CELL";
+
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -445,6 +447,9 @@ static NSString *const AL_TEXT_STYLE_FOR_CELL= @"com.applozic.AL_TEXT_STYLE_FOR_
 
 +(BOOL)isMultiSelectGalleryViewDisabled;
 +(void)disableMultiSelectGalleryView:(BOOL)enabled;
+
++(BOOL)is5MinVideoLimitInGalleryEnabled;
++(void)enable5MinVideoLimitInGallery:(BOOL)enabled;
 
 +(void)setBackgroundColorForAttachmentPlusIcon:(UIColor *)backgroundColor;
 +(UIColor *)getBackgroundColorForAttachmentPlusIcon;

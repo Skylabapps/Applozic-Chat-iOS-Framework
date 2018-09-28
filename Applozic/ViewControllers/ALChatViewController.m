@@ -2955,6 +2955,9 @@ style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
                     self.mImagePicker.sourceType = UIImagePickerControllerSourceTypeCamera;
                     self.mImagePicker.mediaTypes = [[NSArray alloc] initWithObjects: (NSString *)kUTTypeMovie, nil];
                     self.mImagePicker.videoQuality = UIImagePickerControllerQualityTypeHigh;
+                    if ([ALApplozicSettings is5MinVideoLimitInGalleryEnabled]) {
+                        self.mImagePicker.videoMaximumDuration = 60;
+                    }
                     [self presentViewController:self.mImagePicker animated:YES completion:nil];
                 }
                 else

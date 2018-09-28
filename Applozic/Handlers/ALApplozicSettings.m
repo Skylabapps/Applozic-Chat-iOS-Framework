@@ -1253,6 +1253,16 @@
     [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
++(BOOL)is5MinVideoLimitInGalleryEnabled
+{
+    return [[NSUserDefaults standardUserDefaults] boolForKey:AL_5MIN_VIDEO_LIMIT_IN_GALLERY];
+}
++(void)enable5MinVideoLimitInGallery:(BOOL)enabled
+{
+    [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:AL_5MIN_VIDEO_LIMIT_IN_GALLERY];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
 +(void)setBackgroundColorForAttachmentPlusIcon:(UIColor *)backgroundColor
 {
     NSData *backgroundColorData = [NSKeyedArchiver archivedDataWithRootObject:backgroundColor];
