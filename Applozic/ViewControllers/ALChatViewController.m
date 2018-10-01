@@ -70,6 +70,7 @@
 #import "ALMultimediaData.h"
 #import <Applozic/Applozic-Swift.h>
 #import "UIImage+animatedGIF.h"
+#import <Photos/Photos.h>
 
 #define MQTT_MAX_RETRY 3
 #define NEW_MESSAGE_NOTIFICATION @"newMessageNotification"
@@ -101,6 +102,7 @@ NSString * const ThirdPartyDetailVCNotificationChannelKey = @"ThirdPartyDetailVC
 @property (nonatomic, weak) IBOutlet NSLayoutConstraint *tableViewSendMsgTextViewConstraint;
 @property (nonatomic, weak) IBOutlet NSLayoutConstraint *typingLabelBottomConstraint;
 @property (nonatomic, assign) BOOL comingFromBackground;
+@property (nonatomic, strong) ALVideoCoder *videoCoder;
 
 @property (weak, nonatomic) IBOutlet NSLayoutConstraint *nsLayoutconstraintAttachmentWidth;
 
@@ -2577,16 +2579,19 @@ NSString * const ThirdPartyDetailVCNotificationChannelKey = @"ThirdPartyDetailVC
     if(isMovie)
     {
         NSURL *videoURL = info[UIImagePickerControllerMediaURL];
-        [ALImagePickerHandler saveVideoToDocDirectory:videoURL handler:^(NSString * videoFilePath){
-            dispatch_async(dispatch_get_main_queue(), ^{
-                short contentType = ALMESSAGE_CONTENT_ATTACHMENT;
-                if(picker.sourceType == UIImagePickerControllerSourceTypeCamera)
-                {
-                    contentType = ALMESSAGE_CONTENT_CAMERA_RECORDING;
+        AVURLAsset *avAsset = [AVURLAsset URLAssetWithURL:videoURL options:nil];
+        
+        if (avAsset) {
+            self.videoCoder = [[ALVideoCoder alloc] init];
+            [self.videoCoder convertWithAvAssets: @[avAsset] baseVC:self completion:^(NSArray<NSString *> * _Nullable paths) {
+                NSString *videoFilePath = [paths firstObject];
+                // If 'save video to gallery' is enabled then save to gallery
+                if([ALApplozicSettings isSaveVideoToGalleryEnabled]) {
+                    UISaveVideoAtPathToSavedPhotosAlbum(videoFilePath, self, nil, nil);
                 }
-                [self processAttachment:videoFilePath andMessageText:@"" andContentType:contentType];
-            });
-        }];
+                [self processAttachment:videoFilePath andMessageText:@"" andContentType:ALMESSAGE_CONTENT_CAMERA_RECORDING];
+            }];
+        }
     }
     [picker dismissViewControllerAnimated:YES completion:nil];
 }
@@ -2951,12 +2956,12 @@ style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
 
                 if (granted)
                 {
-                    self.mImagePicker.allowsEditing = YES;
+                    self.mImagePicker.allowsEditing = NO;
                     self.mImagePicker.sourceType = UIImagePickerControllerSourceTypeCamera;
                     self.mImagePicker.mediaTypes = [[NSArray alloc] initWithObjects: (NSString *)kUTTypeMovie, nil];
                     self.mImagePicker.videoQuality = UIImagePickerControllerQualityTypeHigh;
                     if ([ALApplozicSettings is5MinVideoLimitInGalleryEnabled]) {
-                        self.mImagePicker.videoMaximumDuration = 60;
+                        self.mImagePicker.videoMaximumDuration = 300;
                     }
                     [self presentViewController:self.mImagePicker animated:YES completion:nil];
                 }
