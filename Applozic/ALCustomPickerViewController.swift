@@ -165,14 +165,12 @@ public class ALBaseNavigationViewController: UINavigationController {
     }
 
     private func createScrollGallery(isGrant:Bool) {
-        if isGrant
-        {
+        if isGrant {
             self.selectedRows = Array(repeating: 0, count: (self.allPhotos != nil) ? self.allPhotos.count:0)
             DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: {
                 self.previewGallery.reloadData()
             })
         }
-
     }
     
     func exportGifAsset(_ asset: PHAsset, completion: @escaping (Data?) -> Void){
@@ -222,7 +220,7 @@ public class ALBaseNavigationViewController: UINavigationController {
         
         videoCoder = ALVideoCoder()
         let range = CMTimeRange(start: .zero, duration: CMTimeMakeWithSeconds(300, preferredTimescale: 600))
-        videoCoder?.convert(videoAssets: videos, range: range, baseVC: self) { urls in
+        videoCoder?.convert(phAssets: videos, range: range, baseVC: self) { urls in
             if let savedUrls = urls {
                 videoPaths = savedUrls
             } else {
@@ -265,7 +263,6 @@ public class ALBaseNavigationViewController: UINavigationController {
             self?.navigationController?.presentingViewController?.dismiss(animated: false, completion: nil)
         }
     }
-
     @IBAction func dismissAction(_ sender: UIBarButtonItem) {
         self.navigationController?.dismiss(animated: false, completion: nil)
     }

@@ -28,7 +28,7 @@ extension PHAsset: AssetSource {
     
     func getAVAsset(_ handler: @escaping (AVAsset?) -> Void) {
         let options = PHVideoRequestOptions()
-        options.deliveryMode = .highQualityFormat
+        options.deliveryMode = .mediumQualityFormat
         options.isNetworkAccessAllowed = true
         
         PHImageManager.default().requestAVAsset(forVideo: self, options: options) { (asset, audioMix, info) in
@@ -67,15 +67,18 @@ extension AVAsset: AssetSource {
         convert(videoAssets: avAssets, range: range, baseVC: baseVC, completion: completion)
     }
     
-    func convert(videoAssets: [AssetSource], range: CMTimeRange, baseVC: UIViewController, completion: @escaping ([String]?) -> Void) {
+    private func convert(videoAssets: [AssetSource], range: CMTimeRange, baseVC: UIViewController, completion: @escaping ([String]?) -> Void) {
         
         let exportVideo = { [weak self] in
             self?.exportMultipleVideos(videoAssets, range: range, exportStarted: { [weak self] in
                 self?.showProgressAlert(on: baseVC)
             }, completion: { [weak vc = baseVC] paths in
-                // preventing crash for short video, with the controller that would attempt to dismiss while being presented
-                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(400)) {
-                    vc?.dismiss(animated: true)
+                
+                if paths != nil {
+                    // preventing crash for short video, with the controller that would attempt to dismiss while being presented
+                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(400)) {
+                        vc?.dismiss(animated: true)
+                    }
                 }
                 completion(paths)
             })
@@ -83,12 +86,13 @@ extension AVAsset: AssetSource {
         
         if ALApplozicSettings.is5MinVideoLimitInGalleryEnabled(), videoAssets.first(where: { $0.durationSeconds > 300 }) != nil {
             
-            let message = NSLocalizedString("The video you’re attempting to send exceeds the 5 minutes limit. If you proceed, only a 5 minutes of the video will be selected and the rest will be trimmed out.", comment: "")
+            let message = NSLocalizedString("videoWarning", value: "The video you’re attempting to send exceeds the 5 minutes limit. If you proceed, only a 5 minutes of the video will be selected and the rest will be trimmed out.", comment: "")
+            
             let alertView = UIAlertController(title: nil, message: message, preferredStyle: .alert)
-            alertView.addAction(UIAlertAction(title: NSLocalizedString("OK", comment: ""), style: .default, handler: { _ in
+            alertView.addAction(UIAlertAction(title:NSLocalizedString("okText", value: "OK", comment: ""), style: .default, handler: { _ in
                 exportVideo()
             }))
-            alertView.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel, handler: { _ in
+            alertView.addAction(UIAlertAction(title: NSLocalizedString("cancelOptionText", value: "Cancel", comment: ""), style: .cancel, handler: { _ in
                 completion(nil)
             }))
             baseVC.present(alertView, animated: true)
@@ -102,15 +106,15 @@ extension AVAsset: AssetSource {
 extension ALVideoCoder {
     
     private func showProgressAlert(on vc: UIViewController) {
-        let alertView = UIAlertController(title: NSLocalizedString("Optimizing...", comment: ""), message: " ", preferredStyle: .alert)
-        alertView.addAction(UIAlertAction(title: NSLocalizedString("Cancel", comment: ""), style: .cancel, handler: { [weak self] _ in
+        let alertView = UIAlertController(title: NSLocalizedString("optimizingText", value: "Optimizing...", comment: ""), message: " ", preferredStyle: .alert)
+        alertView.addAction(UIAlertAction(title:  NSLocalizedString("cancelOptionText", value: "Cancel", comment: ""), style: .cancel, handler: { [weak self] _ in
             self?.exportingVideoSessions.forEach { $0.cancelWriting() }
             self?.progressItems.forEach { $0.exportSession.cancelExport() }
-            alertView.dismiss(animated: true) {
+            DispatchQueue.main.asyncAfter(deadline:.now() + .milliseconds(400), execute: {
                 self?.exportingVideoSessions.removeAll()
                 self?.progressItems.removeAll()
                 self?.timer?.invalidate()
-            }
+            })
         }))
         var mainProgress: Progress?
         if #available(iOS 9.0, *) {
@@ -137,7 +141,7 @@ extension ALVideoCoder {
         })
     }
     
-    private func exportMultipleVideos(_ assets: [AssetSource], range: CMTimeRange, exportStarted: @escaping () -> Void, completion: @escaping ([String]) -> Void) {
+    private func exportMultipleVideos(_ assets: [AssetSource], range: CMTimeRange, exportStarted: @escaping () -> Void, completion: @escaping ([String]?) -> Void) {
         
         guard !assets.isEmpty else {
             completion([])
@@ -162,34 +166,11 @@ extension ALVideoCoder {
         
         dispatchExportStartedGroup.notify(queue: .main, execute: exportStarted)
         dispatchExportCompletedGroup.notify(queue: .main) {
-            completion(videoPaths)
+            completion(videoPaths.isEmpty ? nil : videoPaths)
         }
     }
     
     private func exportVideoAsset(_ asset: AssetSource, range: CMTimeRange, exportStarted: @autoclosure @escaping () -> Void, completion: @escaping (String?) -> Void) {
-        let filename = String(format: "VID-%f.mp4", Date().timeIntervalSince1970*1000)
-        let documentsUrl = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let filePath = documentsUrl.absoluteString.appending(filename)
-        
-        guard var fileurl = URL(string: filePath) else {
-            completion(nil)
-            return
-        }
-        print("exporting video to ", fileurl)
-        fileurl = fileurl.standardizedFileURL
-        
-        
-        let options = PHVideoRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-        
-        // remove any existing file at that location
-        do {
-            try FileManager.default.removeItem(at: fileurl)
-        }
-        catch {
-            // most likely, the file didn't exist.  Don't sweat it
-        }
         
         asset.getAVAsset { [weak self] (asset) in
             guard let urlAsset = asset as? AVURLAsset, let strongSelf = self else {
@@ -216,20 +197,29 @@ extension ALVideoCoder {
             try? fileManager.removeItem(at: trimmedURL)
             
             let convertProgress = Progress(totalUnitCount: Int64(currentDuration * Double(strongSelf.koef)))
-            NSLog("START TRIM")
             let session = strongSelf.trimVideo(videoAsset: urlAsset, range: range, atURL: trimmedURL) { trimmedAsset in
                 
-                NSLog("FINISH TRIM/ START DECODING")
                 guard let newAsset = trimmedAsset else {
-                    exportStarted()
                     completion(nil)
                     return
                 }
                 
+                let filename = String(format: "VID-%f.mp4", Date().timeIntervalSince1970*1000)
+                let documentsUrl = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+                let filePath = documentsUrl.absoluteString.appending(filename)
+                
+                guard var fileurl = URL(string: filePath) else {
+                    completion(nil)
+                    return
+                }
+                fileurl = fileurl.standardizedFileURL
+                
+                // remove any existing file at that location
+                try? FileManager.default.removeItem(at: fileurl)
+                
                 ALVideoCoder.convertVideoToLowQuailtyWithInputURL(videoAsset: newAsset, outputURL: fileurl, progress: convertProgress, started: { writer in
                     self?.exportingVideoSessions.append(writer)
                 }, completed: {
-                    NSLog("END DECODING")
                     completion(fileurl.path)
                     try? fileManager.removeItem(at: trimmedURL)
                 })
@@ -271,16 +261,12 @@ extension ALVideoCoder {
         for item in progressItems {
             let trimProgress = Int64(Double(item.exportSession.progress) * koef * item.durationSeconds)
             item.trimProgress.completedUnitCount = trimProgress
-//            print("TRIM \(trimProgress)")
         }
     }
     
     private class func convertVideoToLowQuailtyWithInputURL(videoAsset: AVURLAsset, outputURL: URL, progress: Progress, started: (AVAssetWriter) -> Void, completed: @escaping () -> Void) {
+        
         //setup video writer
-        
-//        let durationTime = Double(CMTimeGetSeconds(videoAsset.duration))
-//        let progress = Progress(totalUnitCount: Int64(durationTime))
-        
         let videoTrack = videoAsset.tracks(withMediaType: AVMediaType.video)[0]
         let videoSize = videoTrack.naturalSize
         
@@ -311,7 +297,6 @@ extension ALVideoCoder {
         
         let videoReaderOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
         let videoReader = try! AVAssetReader(asset: videoAsset)
-//        videoReader.timeRange = range
         videoReader.add(videoReaderOutput)
         //setup audio writer
         let audioWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
@@ -321,13 +306,12 @@ extension ALVideoCoder {
         let audioTrack = videoAsset.tracks(withMediaType: AVMediaType.audio)[0]
         let audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
         let audioReader = try! AVAssetReader(asset: videoAsset)
-//        audioReader.timeRange = range
         audioReader.add(audioReaderOutput)
         videoWriter.startWriting()
         
         //start writing from video reader
         videoReader.startReading()
-        videoWriter.startSession(atSourceTime: CMTime.zero)
+        videoWriter.startSession(atSourceTime: .zero)
         let processingQueue = DispatchQueue(label: "processingQueue1")
         videoWriterInput.requestMediaDataWhenReady(on: processingQueue) {
             while videoWriterInput.isReadyForMoreMediaData {
@@ -335,23 +319,19 @@ extension ALVideoCoder {
                 if let sampleBuffer = videoReaderOutput.copyNextSampleBuffer(), videoReader.status == .reading {
                     videoWriterInput.append(sampleBuffer)
                     let timeStamp = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
-                    progress.completedUnitCount = Int64(timeStamp*100) //strongSelf.koef
-//                    NSLog("VIDEO: \(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)))")
-//                    NSLog("VIDEO: \(outputURL.lastPathComponent): \(Int(Double(timeStamp)*100/durationTime))")
+                    progress.completedUnitCount = Int64(timeStamp*100)
                 } else {
                     videoWriterInput.markAsFinished()
                     if videoReader.status == .completed {
                         //start writing from audio reader
                         audioReader.startReading()
-                        videoWriter.startSession(atSourceTime: CMTime.zero)
+                        videoWriter.startSession(atSourceTime: .zero)
                         let processingQueue = DispatchQueue(label: "processingQueue2")
                         audioWriterInput.requestMediaDataWhenReady(on: processingQueue) {
                             while audioWriterInput.isReadyForMoreMediaData {
                                 
                                 if let sampleBuffer = audioReaderOutput.copyNextSampleBuffer(), audioReader.status == .reading {
                                     audioWriterInput.append(sampleBuffer)
-                                    //                                    let timeStamp = Double(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)))
-                                    //                                    NSLog("AUDIO: \(timeStamp/durationTime)")
                                 } else {
                                     audioWriterInput.markAsFinished()
                                     if audioReader.status == .completed {
