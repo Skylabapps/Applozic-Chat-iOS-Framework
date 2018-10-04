@@ -221,7 +221,8 @@ public class ALBaseNavigationViewController: UINavigationController {
         let videos = Array(selectedVideos.values)
         
         videoCoder = ALVideoCoder()
-        videoCoder?.convert(videoAssets: videos, baseVC: self) { urls in
+        let range = CMTimeRange(start: .zero, duration: CMTimeMakeWithSeconds(300, preferredTimescale: 600))
+        videoCoder?.convert(videoAssets: videos, range: range, baseVC: self) { urls in
             if let savedUrls = urls {
                 videoPaths = savedUrls
             } else {

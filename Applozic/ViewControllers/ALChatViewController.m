@@ -2583,8 +2583,17 @@ NSString * const ThirdPartyDetailVCNotificationChannelKey = @"ThirdPartyDetailVC
         
         if (avAsset) {
             self.videoCoder = [[ALVideoCoder alloc] init];
-            [self.videoCoder convertWithAvAssets: @[avAsset] baseVC:self completion:^(NSArray<NSString *> * _Nullable paths) {
+            
+            double start = [info[@"_UIImagePickerControllerVideoEditingStart"] doubleValue];
+            double end = [info[@"_UIImagePickerControllerVideoEditingEnd"] doubleValue];
+            
+            double timescale = 600;
+            CMTimeRange range = CMTimeRangeMake(CMTimeMake(start*timescale, timescale), CMTimeMake((end-start)*timescale, timescale));
+            [self.videoCoder convertWithAvAssets:@[avAsset] range:range baseVC:self completion:^(NSArray<NSString *> * _Nullable paths) {
                 NSString *videoFilePath = [paths firstObject];
+                if (!videoFilePath) {
+                    return;
+                }
                 // If 'save video to gallery' is enabled then save to gallery
                 if([ALApplozicSettings isSaveVideoToGalleryEnabled]) {
                     UISaveVideoAtPathToSavedPhotosAlbum(videoFilePath, self, nil, nil);
@@ -2956,7 +2965,7 @@ style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
 
                 if (granted)
                 {
-                    self.mImagePicker.allowsEditing = NO;
+                    self.mImagePicker.allowsEditing = YES;
                     self.mImagePicker.sourceType = UIImagePickerControllerSourceTypeCamera;
                     self.mImagePicker.mediaTypes = [[NSArray alloc] initWithObjects: (NSString *)kUTTypeMovie, nil];
                     self.mImagePicker.videoQuality = UIImagePickerControllerQualityTypeHigh;
