@@ -238,11 +238,12 @@ extension ALVideoCoder {
     
     // video processing
     private func trimVideo(videoAsset: AVURLAsset, range: CMTimeRange, atURL:URL, completed: @escaping (AVURLAsset?) -> Void) -> AVAssetExportSession {
-
+        
         let exportSession = AVAssetExportSession(asset: videoAsset, presetName: AVAssetExportPresetPassthrough)!
         exportSession.outputURL = atURL
-        exportSession.outputFileType = AVFileType.mov
+        exportSession.outputFileType = AVFileType.mp4
         exportSession.timeRange = range
+        exportSession.metadataItemFilter = AVMetadataItemFilter.forSharing()
         exportSession.exportAsynchronously {
             switch(exportSession.status) {
             case .completed:
@@ -266,8 +267,48 @@ extension ALVideoCoder {
     
     private class func convertVideoToLowQuailtyWithInputURL(videoAsset: AVURLAsset, outputURL: URL, progress: Progress, started: (AVAssetWriter) -> Void, completed: @escaping () -> Void) {
         
-        //setup video writer
-        let videoTrack = videoAsset.tracks(withMediaType: AVMediaType.video)[0]
+        //tracks
+        let videoTrack = videoAsset.tracks(withMediaType: .video)[0]
+        let audioTrack = videoAsset.tracks(withMediaType: .audio)[0]
+        
+        // video output settings
+        let videoReaderSettings: [String : Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+        ]
+        
+        // audio output settings
+        var channelLayout = AudioChannelLayout()
+        memset(&channelLayout, 0, MemoryLayout<AudioChannelLayout>.size)
+        channelLayout.mChannelLayoutTag = kAudioChannelLayoutTag_Stereo
+        
+        let outputSettings: [String : Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 44100,
+            AVNumberOfChannelsKey: 2,
+            AVChannelLayoutKey: NSData(bytes:&channelLayout, length:MemoryLayout.size(ofValue: channelLayout)),
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsNonInterleaved: false,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false
+        ]
+        
+        // video/audio asset outputs
+        let videoAssetReaderOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
+        let audioAssetReaderOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+        
+        // setup asset readers
+        let assetReader = try! AVAssetReader(asset: videoAsset)
+        
+        // add video/audio outputs to the readers
+        if assetReader.canAdd(videoAssetReaderOutput) {
+            assetReader.add(videoAssetReaderOutput)
+        }
+        if assetReader.canAdd(audioAssetReaderOutput) {
+            assetReader.add(audioAssetReaderOutput)
+        }
+        
+        
+        // video asset input settings
         let videoSize = videoTrack.naturalSize
         
         let widthIsBigger = max(videoSize.height, videoSize.width) == videoSize.width
@@ -277,75 +318,84 @@ extension ALVideoCoder {
             AVVideoAverageBitRateKey : 815_000
         ]
         
-        let videoWriterSettings:[String : Any] = [
+        let videoWriterOutputSettings: [String : Any] = [
             AVVideoCodecKey : AVVideoCodecH264,
             AVVideoCompressionPropertiesKey : videoWriterCompressionSettings,
             AVVideoWidthKey : Int(videoSize.width/ratio),
             AVVideoHeightKey : Int(videoSize.height/ratio)
         ]
         
-        let videoWriter = try! AVAssetWriter(outputURL: outputURL, fileType: .mov)
+        // audio asset input settings
+        let audioWriterOutputSettings: [String : Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC,
+                                                         AVNumberOfChannelsKey: 2,
+                                                         AVSampleRateKey: 44100.0,
+                                                         AVEncoderBitRateKey: 64000]
         
-        let videoWriterInput = AVAssetWriterInput(mediaType: AVMediaType.video, outputSettings: videoWriterSettings)
-        videoWriterInput.expectsMediaDataInRealTime = true
-        videoWriterInput.transform = videoTrack.preferredTransform
-        videoWriter.add(videoWriterInput)
-        //setup video reader
-        let videoReaderSettings:[String : Any] = [
-            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
-        ]
+        // audio/video writer inputs
+        let videoAssetWriterInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoWriterOutputSettings)
+        videoAssetWriterInput.expectsMediaDataInRealTime = true
+        videoAssetWriterInput.transform = videoTrack.preferredTransform
+        let audioAssetWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioWriterOutputSettings)
         
-        let videoReaderOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: videoReaderSettings)
-        let videoReader = try! AVAssetReader(asset: videoAsset)
-        videoReader.add(videoReaderOutput)
-        //setup audio writer
-        let audioWriterInput = AVAssetWriterInput(mediaType: .audio, outputSettings: nil)
-        audioWriterInput.expectsMediaDataInRealTime = false
-        videoWriter.add(audioWriterInput)
-        //setup audio reader
-        let audioTrack = videoAsset.tracks(withMediaType: AVMediaType.audio)[0]
-        let audioReaderOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
-        let audioReader = try! AVAssetReader(asset: videoAsset)
-        audioReader.add(audioReaderOutput)
-        videoWriter.startWriting()
+        // asset writer
+        let assetWriter = try! AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        assetWriter.shouldOptimizeForNetworkUse = true
+        
+        if assetWriter.canAdd(videoAssetWriterInput) {
+            assetWriter.add(videoAssetWriterInput)
+        }
+        if assetWriter.canAdd(audioAssetWriterInput) {
+            assetWriter.add(audioAssetWriterInput)
+        }
         
         //start writing from video reader
-        videoReader.startReading()
-        videoWriter.startSession(atSourceTime: .zero)
-        let processingQueue = DispatchQueue(label: "processingQueue1")
-        videoWriterInput.requestMediaDataWhenReady(on: processingQueue) {
-            while videoWriterInput.isReadyForMoreMediaData {
+        assetWriter.startWriting()
+        assetReader.startReading()
+        
+        assetWriter.startSession(atSourceTime: .zero)
+        
+        let group = DispatchGroup()
+        group.enter()
+        
+        // read/write video
+        let processingQueue1 = DispatchQueue(label: "processingQueue1")
+        videoAssetWriterInput.requestMediaDataWhenReady(on: processingQueue1) {
+            while videoAssetWriterInput.isReadyForMoreMediaData {
                 
-                if let sampleBuffer = videoReaderOutput.copyNextSampleBuffer(), videoReader.status == .reading {
-                    videoWriterInput.append(sampleBuffer)
+                if let sampleBuffer = videoAssetReaderOutput.copyNextSampleBuffer() {
+                    videoAssetWriterInput.append(sampleBuffer)
                     let timeStamp = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
                     progress.completedUnitCount = Int64(timeStamp*100)
                 } else {
-                    videoWriterInput.markAsFinished()
-                    if videoReader.status == .completed {
-                        //start writing from audio reader
-                        audioReader.startReading()
-                        videoWriter.startSession(atSourceTime: .zero)
-                        let processingQueue = DispatchQueue(label: "processingQueue2")
-                        audioWriterInput.requestMediaDataWhenReady(on: processingQueue) {
-                            while audioWriterInput.isReadyForMoreMediaData {
-                                
-                                if let sampleBuffer = audioReaderOutput.copyNextSampleBuffer(), audioReader.status == .reading {
-                                    audioWriterInput.append(sampleBuffer)
-                                } else {
-                                    audioWriterInput.markAsFinished()
-                                    if audioReader.status == .completed {
-                                        videoWriter.finishWriting {
-                                            completed()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    videoAssetWriterInput.markAsFinished()
+                    group.leave()
                 }
             }
         }
-        started(videoWriter)
+        
+        group.enter()
+        let processingQueue2 = DispatchQueue(label: "processingQueue2")
+        
+        // read/write audio
+        audioAssetWriterInput.requestMediaDataWhenReady(on: processingQueue2) {
+            while audioAssetWriterInput.isReadyForMoreMediaData {
+                
+                if let sampleBuffer = audioAssetReaderOutput.copyNextSampleBuffer() {
+                    audioAssetWriterInput.append(sampleBuffer)
+                } else {
+                    audioAssetWriterInput.markAsFinished()
+                    group.leave()
+                }
+            }
+        }
+        
+        group.notify(queue: .main, work: DispatchWorkItem {
+            assetWriter.finishWriting {
+                completed()
+            }
+            assetReader.cancelReading()
+        })
+        
+        started(assetWriter)
     }
 }
