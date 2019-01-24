@@ -86,7 +86,7 @@ extension AVAsset: AssetSource {
         
         if ALApplozicSettings.is5MinVideoLimitInGalleryEnabled(), videoAssets.first(where: { $0.durationSeconds > 300 }) != nil {
             
-            let message = NSLocalizedString("videoWarning", value: "The video you’re attempting to send exceeds the 5 minutes limit. If you proceed, only a 5 minutes of the video will be selected and the rest will be trimmed out.", comment: "")
+            let message = NSLocalizedString("videoWarning", value: "The video you’re attempting to send exceeds the 5 minutes limit. If you proceed, only 5 minutes of the video will be selected and the rest will be trimmed out.", comment: "")
             
             let alertView = UIAlertController(title: nil, message: message, preferredStyle: .alert)
             alertView.addAction(UIAlertAction(title:NSLocalizedString("okText", value: "OK", comment: ""), style: .default, handler: { _ in
