@@ -30,46 +30,33 @@
 -(void)callForChannelServiceForDBInsertion:(NSString *)theJson
 {
     ALChannelFeed *alChannelFeed = [[ALChannelFeed alloc] initWithJSONString:theJson];
-    
+
     ALChannelDBService *alChannelDBService = [[ALChannelDBService alloc] init];
     [alChannelDBService insertChannel:alChannelFeed.channelFeedsList];
-    
-    NSMutableArray * memberArray = [NSMutableArray new];
-    
+
+    ALDBHandler *theDBHandler = [ALDBHandler sharedInstance];
+
     for(ALChannel *channel in alChannelFeed.channelFeedsList)
     {
-        for(NSString *memberName in channel.membersName)
-        {
-            ALChannelUserX *newChannelUserX = [[ALChannelUserX alloc] init];
-            newChannelUserX.key = channel.key;
-            newChannelUserX.userKey = memberName;
-            [memberArray addObject:newChannelUserX];
-            
+
+        if(channel.membersName == nil){
+            channel.membersName = channel.membersId;
         }
-        
-        [alChannelDBService insertChannelUserX:memberArray];
-        [alChannelDBService removedMembersArray:channel.removeMembers andChannelKey:channel.key];
-        [memberArray removeAllObjects];
+        [alChannelDBService saveDataInBackgroundWithContext:theDBHandler.temporaryWorkerContext withChannel: channel completion:^{
+            [alChannelDBService buildChannelUsersWithChannel:channel withContext:theDBHandler.temporaryWorkerContext];
+        }];
+
         [self processChildGroups:channel];
-        
-        for(ALChannelUser * channelUser in channel.groupUsers)
-        {
-            if(channelUser.parentGroupKey){
-                [ alChannelDBService updateParentKeyInChannelUserX:channel.key andWithParentKey:channelUser.parentGroupKey addUserId:channelUser.userId];
-            }
-            if(channelUser.role){
-                [ alChannelDBService updateRoleInChannelUserX:channel.key andUserId:channelUser.userId withRoleType:channelUser.role];
-            }
-            
-        }
+        [alChannelDBService addedMembersArray:channel.membersName andChannelKey:channel.key];
+        [alChannelDBService removedMembersArray:channel.removeMembers andChannelKey:channel.key];
+
     }
-    
+
     //callForChannelProxy inserting in DB...
     ALConversationService *alConversationService = [[ALConversationService alloc] init];
     [alConversationService addConversations:alChannelFeed.conversationProxyList];
-    
-}
 
+}
 
 
 -(void)processChildGroups:(ALChannel *)alChannel {
