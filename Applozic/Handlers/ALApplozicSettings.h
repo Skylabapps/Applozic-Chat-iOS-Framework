@@ -88,6 +88,7 @@
 #define SWIFT_FRAMEWORK @"com.applozic.userfefault.SWIFT_FRAMEWORK"
 #define DEDICATED_SERVER @"com.applozic.userfefault.DEDICATED_SERVER"
 #define HIDE_ATTACHMENT_OPTION @"com.applozic.HIDE_ATTACHMENT_OPTIONS"
+#define DISABLE_UNBLOCK_FROM_CHAT @"com.applozic.DISABLE_UNBLOCK_FROM_CHAT"
 #define S3_STORAGE_SERVICE @"com.applozic.userdefault.S3_STORAGE_SERVICE"
 #define DEFAULT_GROUP_TYPE @"com.applozic.DEFAULT_GROUP_TYPE"
 #define CONTACTS_GROUP_ID_LIST @"com.applozic.userdefault.CONTACTS_GROUP_ID_LIST"
@@ -435,6 +436,11 @@ static NSString *const MEDIA_SELECT_OPTIONS = @"com.applozic.MEDIA_SELECT_OPTION
 +(BOOL) isSendVideoOptionHidden;
 +(BOOL) isLocationOptionHidden;
 +(BOOL) isBlockUserOptionHidden;
+
+// Enable/Disable unblock users from sendMessageTextView
++(void) setIsUnblockInChatDisabled:(BOOL)flag;
++(BOOL) isUnblockInChatDisabled;
+    
 +(BOOL) isShareContactOptionHidden;
 +(BOOL) isAttachmentButtonHidden;
 +(BOOL) isDocumentOptionHidden;

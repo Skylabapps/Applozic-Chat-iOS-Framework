@@ -1124,6 +1124,16 @@
     return ([[self getHideAttachmentsOption] containsObject:@":blockUser"]);
 }
 
++(void) setIsUnblockInChatDisabled:(BOOL)flag {
+    [[NSUserDefaults standardUserDefaults] setBool:flag forKey:DISABLE_UNBLOCK_FROM_CHAT];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
++(BOOL) isUnblockInChatDisabled {
+    BOOL key = [[NSUserDefaults standardUserDefaults] boolForKey:DISABLE_UNBLOCK_FROM_CHAT];
+    return key;
+}
+
 +(BOOL) isShareContactOptionHidden{
     return ([[self getHideAttachmentsOption] containsObject:@":shareContact"]);
 }
