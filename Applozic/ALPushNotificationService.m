@@ -375,6 +375,11 @@
     NSString *userId = mqttMSGArray[1];
     if(![BlockType isEqualToString:@"BLOCKED_BY"] && ![BlockType isEqualToString:@"UNBLOCKED_BY"])
     {
+        NSMutableDictionary *dict = [[NSMutableDictionary alloc]init];
+        dict[@"userId"] = userId;
+        dict[@"falg"] = @(flag);
+
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"AL_BLOCKED_OR_UNBLOCKED_BY_ME" object:dict];
         return NO;
     }
     ALContactDBService *dbService = [ALContactDBService new];

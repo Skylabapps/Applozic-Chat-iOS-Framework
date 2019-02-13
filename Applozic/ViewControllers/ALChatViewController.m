@@ -401,6 +401,7 @@ NSString * const ThirdPartyDetailVCNotificationChannelKey = @"ThirdPartyDetailVC
         ALChannelService * alChannelService  = [[ALChannelService alloc] init];
         ALChannel *alChannel = [alChannelService getChannelByKey:self.channelKey];
         hidden = (alChannel && alChannel.type == OPEN); // Else hide for open group only.
+
     }
     self.attachmentOutlet.hidden = hidden;
     self.nsLayoutconstraintAttachmentWidth.constant = hidden ? 0 : 40;
@@ -961,16 +962,12 @@ NSString * const ThirdPartyDetailVCNotificationChannelKey = @"ThirdPartyDetailVC
         [self freezeView:NO];
     }
 
-    if(self.channelKey){
-        ALChannelDBService *channelDBService = [[ALChannelDBService alloc]init];
-        
-        ALChannelUserX *alChannelUserXLoggedInUser = [channelDBService loadChannelUserXByUserId:self.channelKey andUserId:[ALUserDefaultsHandler getUserId]];
-        
-        if([channelDBService isAdminBroadcastChannel:self.channelKey] && !alChannelUserXLoggedInUser.isAdminUser){
-            self.typingMessageView.hidden = YES;
-        }
-        
+    if(self.alChannel.metadata != nil && [[self.alChannel.metadata valueForKey:@"AL_ADMIN_BROADCAST"] isEqualToString:@"true"] && ![[self.alChannel.metadata  valueForKey:@"AL_ADMIN_USERID"] isEqualToString:[ALUserDefaultsHandler getUserId]]){
+        self.typingMessageView.hidden = YES;
+    }else{
+        self.typingMessageView.hidden = NO;
     }
+
 }
 
 //==============================================================================================================================================
